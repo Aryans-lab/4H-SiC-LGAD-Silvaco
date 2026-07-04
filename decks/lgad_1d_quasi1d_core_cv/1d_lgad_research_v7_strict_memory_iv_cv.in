@@ -1,0 +1,135 @@
+# ============================================================
+# RESEARCH GRADE 4H-SiC LGAD DECK - V5 FINAL (IV & CV)
+# ============================================================
+# - 50um full device thickness
+# - Gain layer tuned to 6.0e16 to hit ~600V breakdown
+# - Strict memory isolation between CV (AC) and IV (Avalanche) sweeps
+# - Stabilized 1e-14 cm^2 capture cross-sections to prevent singularities
+# ============================================================
+# go victorydevice simflags="-256 -P 20"
+
+# ============================================================
+# 1. MESH (Smoothed gradients to prevent matrix singularities)
+# ============================================================
+mesh WIDTH=1000000
+
+x.mesh location=0.0 spacing=1.0
+x.mesh location=1.0 spacing=1.0
+
+y.mesh location=0.00  spacing=0.001
+y.mesh location=0.05  spacing=0.001
+y.mesh location=0.30  spacing=0.005
+y.mesh location=2.45  spacing=0.005
+y.mesh location=5.00  spacing=0.05
+y.mesh location=25.0  spacing=0.50
+y.mesh location=45.0  spacing=0.50
+y.mesh location=49.0  spacing=0.10
+y.mesh location=50.0  spacing=0.10
+
+# ============================================================
+# 2. REGIONS & ELECTRODES
+# ============================================================
+region num=1 material='4H-SiC' y.min=0.00 y.max=50.00
+
+electrode name=anode top
+electrode name=cathode bottom
+
+# ============================================================
+# 3. DOPING PROFILE
+# ============================================================
+doping region=1 n.type uniform concentration=1.5e14 y.min=0.0 y.max=45.0
+doping region=1 n.type uniform concentration=5.0e18 y.min=45.0 y.max=49.0
+doping region=1 n.type uniform concentration=1.0e20 y.min=49.0 y.max=50.0
+
+# Gain layer (Tuned for 500V-800V breakdown)
+doping region=1 n.type uniform concentration=6.0e16 y.min=0.05 y.max=2.45
+
+# Anode Contact (P++)
+doping region=1 p.type uniform concentration=2.0e19 y.min=0.0 y.max=0.05
+
+# ============================================================
+# 4. MATERIALS & MOBILITY
+# ============================================================
+contact name=anode
+contact name=cathode resistance=2e5
+
+material material='4H-SiC' \
+    eg300=3.25 egalpha=9.06e-4 egbeta=2.03e3 \
+    affinity=3.13 nc300=1.66e19 nv300=3.3e19 \
+    permittivity=9.7 ni.min=1e-20 \
+    mun0=947 mup0=124 tmun=1.5 tmup=1.5 \
+    vsatn=2.2e7 vsatp=1.0e7 \
+    augn=5e-29 augp=9.9e-32
+
+mobility material='4H-SiC' \
+    mu2p.caug=124 ncritp.caug=1.76e19 \
+    alphap.caug=0 deltap.caug=0.34 gammap.caug=0 \
+    mu2n.caug=947 ncritn.caug=1.94e17 \
+    alphan.caug=0 deltan.caug=0.61 gamman.caug=0
+
+# ============================================================
+# 5. DEFECTS & RADIATION DAMAGE PHYSICS
+# ============================================================
+# Cross sections locked to 1e-14 to prevent Newton bisection singularities
+trap material="4H-SiC" acceptor density=1e15 energy.level=0.67 degeneracy.factor=2 sign=1e-14 sigp=1e-14
+trap material="4H-SiC" donor density=1e17 energy.level=1.60 degeneracy.factor=2 sign=1e-14 sigp=1e-14
+trap material="4H-SiC" acceptor density=1e17 energy.level=1.60 degeneracy.factor=2 sign=1e-14 sigp=1e-14
+
+# ============================================================
+# 6. ZERO-BIAS INITIALIZATION & BASELINE SAVE
+# ============================================================
+# Incomplete ionization disabled for SiC convergence stability
+models material='4H-SiC' consrh auger analytic fldmob bgn.lindefelt fermidirac
+
+method newton trap maxtraps=15 itlimit=150 px.tol=1e-6 cx.tol=1e-6 pr.tol=1e-10 cr.tol=1e-10
+solve init
+solve vanode=0 vcathode=0
+save outfile=lgad_v5_0V_baseline.str
+
+# ============================================================
+# 7. C-V SWEEP (AC ON, IMPACT OFF)
+# ============================================================
+log outfile=lgad_v5_cv.log
+
+# Sweep to 400V extracting 10kHz capacitance
+solve vstep=2.0 vfinal=400 name=cathode ac freq=10000 previous
+
+log off
+
+# ============================================================
+# 8. I-V AVALANCHE SWEEP (AC OFF, IMPACT ON)
+# ============================================================
+# HARD RESET: Load 0V state to purge the AC matrix from solver memory
+load infile=lgad_v5_0V_baseline.str master
+
+# Inject heavy physics
+impact material='4H-SiC' anisotropic sic4h0001 e.side gradqfl e.min=1e5
+models material='4H-SiC' consrh auger analytic fldmob bgn.lindefelt fermidirac impact bbt.std
+
+log outfile=lgad_v5_iv.log
+
+# Runway steps
+solve vcathode=0.1
+solve vcathode=1.0
+
+# Pre-Avalanche Sweep (Fast 10V steps to 500V)
+method newton trap maxtraps=15 itlimit=150 dvmax=10.0 px.tol=1e-6 cx.tol=1e-6 pr.tol=1e-10 cr.tol=1e-10
+solve vstep=10.0 vfinal=500 name=cathode compliance=1e-4 cname=cathode previous
+
+# Avalanche Knee Sweep (High-res 2V steps to 1200V)
+method newton trap maxtraps=25 itlimit=150 dvmax=2.0 px.tol=1e-6 cx.tol=1e-6 pr.tol=1e-9 cr.tol=1e-9
+solve vstep=2.0 vfinal=1200 name=cathode compliance=1e-4 cname=cathode previous
+
+log off
+save outfile=lgad_v5_post_avalanche.str
+
+# ============================================================
+# 9. AUTOMATED EXTRACTION
+# ============================================================
+extract init infile="lgad_v5_iv.log"
+extract name="Vbd_100nA" x.val from curve(v."cathode", abs(i."anode")) where y.val=1e-7
+
+extract init infile="lgad_v5_cv.log"
+extract name="C_plateau_pF" y.val from curve(v."cathode", c."cathode""cathode"*1e12) where x.val=200
+
+quit
