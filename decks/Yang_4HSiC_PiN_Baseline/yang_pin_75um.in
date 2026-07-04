@@ -1,0 +1,89 @@
+go victorydevice simflags="-256 -P 4"
+
+TITLE "4H-SiC PiN diode replica: Yang et al., 75 um circular mesa, IV geometry"
+
+# ==========================================
+# 1. MESH (2D Axisymmetric Cylinder)
+# ==========================================
+MESH CYLINDRICAL SPACE.MULT=1.0
+
+X.MESH LOCATION=0.0    SPACING=0.25
+X.MESH LOCATION=1.0    SPACING=0.25
+X.MESH LOCATION=30.0   SPACING=1.0
+X.MESH LOCATION=36.5   SPACING=0.25
+X.MESH LOCATION=37.5   SPACING=0.05
+X.MESH LOCATION=38.5   SPACING=0.05
+X.MESH LOCATION=57.5   SPACING=1.0
+
+Y.MESH LOCATION=0.0    SPACING=0.01
+Y.MESH LOCATION=0.3    SPACING=0.005
+Y.MESH LOCATION=1.0    SPACING=0.05
+Y.MESH LOCATION=5.0    SPACING=0.25
+Y.MESH LOCATION=20.0   SPACING=0.5
+Y.MESH LOCATION=75.3   SPACING=0.2
+Y.MESH LOCATION=76.3   SPACING=0.02
+Y.MESH LOCATION=96.3   SPACING=1.0
+
+# ==========================================
+# 2. REGIONS & ELECTRODES
+# ==========================================
+REGION NUMBER=1 MATERIAL=AIR
+
+REGION NUMBER=2 NAME=pplus_contact MATERIAL="4H-SiC" \
+       X.MIN=0.0 X.MAX=37.5 Y.MIN=0.0 Y.MAX=0.3
+
+REGION NUMBER=3 NAME=nminus_drift MATERIAL="4H-SiC" \
+       X.MIN=0.0 X.MAX=57.5 Y.MIN=0.3 Y.MAX=75.3
+
+REGION NUMBER=4 NAME=nplus_buffer MATERIAL="4H-SiC" \
+       X.MIN=0.0 X.MAX=57.5 Y.MIN=75.3 Y.MAX=76.3
+
+REGION NUMBER=5 NAME=nplus_substrate_stub MATERIAL="4H-SiC" \
+       X.MIN=0.0 X.MAX=57.5 Y.MIN=76.3 Y.MAX=96.3
+
+# Passivation volume around the etched p++ mesa
+REGION NUMBER=6 NAME=sio2_passivation MATERIAL=OXIDE \
+       X.MIN=37.5 X.MAX=57.5 Y.MIN=0.0 Y.MAX=0.3
+
+ELECTRODE NAME=anode MATERIAL=ALUMINUM X.MIN=0.0 X.MAX=37.5
+ELECTRODE NAME=cathode BOTTOM
+
+# ==========================================
+# 3. DOPING (Yang et al. Replica)
+# ==========================================
+DOPING ALUMINUM REGION=2 UNIFORM CONCENTRATION=1.0e20
+DOPING NITROGEN REGION=3 UNIFORM CONCENTRATION=4.86e14
+DOPING NITROGEN REGION=4 UNIFORM CONCENTRATION=5.0e18
+DOPING NITROGEN REGION=5 UNIFORM CONCENTRATION=1.0e19
+
+# ==========================================
+# 4. PHYSICS & MODELS
+# ==========================================
+MODELS FERMIDIRAC INCOMPLETE MOB.INCOMPL SRH CONMOB FLDMOB BGN.LIND PRINT
+METHOD NEWTON CARRIERS=2
+
+OUTPUT BAND.PARAM E.MOBILITY H.MOBILITY QFN QFP RECOMB U.SRH
+
+# ==========================================
+# 5. INITIALIZATION & I-V SWEEP
+# ==========================================
+SOLVE INITIAL
+SAVE OUTFILE=pin_75um_equilibrium.str
+
+LOG OUTFILE=pin_75um_reverse_iv.log
+SOLVE VANODE=0.0 VCATHODE=0.0
+
+# Low-bias depletion sweep
+SOLVE VSTART=0.0   VSTEP=10.0  VSTOP=100.0 NAME=cathode
+
+# Moderate sweep to 600V (field/alpha signal benchmark)
+SOLVE VSTART=100.0 VSTEP=25.0  VSTOP=600.0 NAME=cathode
+SAVE OUTFILE=pin_75um_600V.str
+
+# Full range matching Figure 4(a)
+SOLVE VSTART=600.0 VSTEP=50.0  VSTOP=1500.0 NAME=cathode
+
+LOG OFF
+SAVE OUTFILE=pin_75um_final_1500V.str
+
+QUIT
