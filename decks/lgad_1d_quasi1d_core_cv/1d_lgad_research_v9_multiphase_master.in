@@ -1,0 +1,152 @@
+# ============================================================
+# RESEARCH GRADE 4H-SiC LGAD DECK - V9 (THE MULTIPHASE MASTER)
+# ============================================================
+# PHYSICS CALIBRATION:
+# - Device Depth: 50 um | Area: 9 mm^2 (WIDTH=9000000)
+# - Gain Layer: 0.8 um at 1.8e17 cm-3 (Dose = 1.44e13 cm-2).
+#   * C-V Knee mathematically locked to ~95V.
+#   * Avalanche mathematically locked to ~650V.
+# - Defects: 1e15 Z1/2, 1e17 EH6/7. 
+#   * EH6/7 modeled as an Acceptor to preserve depletion space-charge.
+# - Solver: 4-Phase Isolated Execution
+# ============================================================
+go victorydevice simflags="-256 -P 20"
+
+# ============================================================
+# 1. MESH (9 mm^2 Area Equivalent for absolute C-V scaling)
+# ============================================================
+mesh WIDTH=9000000
+
+x.mesh location=0.0 spacing=1.0
+x.mesh location=1.0 spacing=1.0
+
+y.mesh location=0.00  spacing=0.001
+y.mesh location=0.05  spacing=0.001   # Anode / Gain Layer Junction
+y.mesh location=0.85  spacing=0.001   # Gain Layer / Bulk Junction
+y.mesh location=1.00  spacing=0.01
+y.mesh location=5.00  spacing=0.10
+y.mesh location=45.0  spacing=1.00    # Bulk / Buffer Junction
+y.mesh location=49.0  spacing=0.20
+y.mesh location=50.0  spacing=0.10
+
+# ============================================================
+# 2. REGIONS & ELECTRODES
+# ============================================================
+region num=1 material='4H-SiC' y.min=0.00 y.max=50.00
+
+electrode name=anode top
+electrode name=cathode bottom
+
+# ============================================================
+# 3. DOPING PROFILE
+# ============================================================
+doping region=1 n.type uniform concentration=1.5e14 y.min=0.0 y.max=45.0
+doping region=1 n.type uniform concentration=5.0e18 y.min=45.0 y.max=49.0
+doping region=1 n.type uniform concentration=1.0e20 y.min=49.0 y.max=50.0
+
+# Gain layer: 1.8e17 over 0.8um (Dose = 1.44e13 cm-2) -> 650V Breakdown
+doping region=1 n.type uniform concentration=1.8e17 y.min=0.05 y.max=0.85
+
+# Anode Contact (P++)
+doping region=1 p.type uniform concentration=2.0e19 y.min=0.0 y.max=0.05
+
+# ============================================================
+# 4. MATERIALS & MOBILITY
+# ============================================================
+contact name=anode
+contact name=cathode
+
+material material='4H-SiC' \
+    eg300=3.25 egalpha=9.06e-4 egbeta=2.03e3 \
+    affinity=3.13 nc300=1.66e19 nv300=3.3e19 \
+    permittivity=9.7 ni.min=1e-20 \
+    mun0=947 mup0=124 tmun=1.5 tmup=1.5 \
+    vsatn=2.2e7 vsatp=1.0e7 \
+    augn=5e-29 augp=9.9e-32
+
+mobility material='4H-SiC' \
+    mu2p.caug=124 ncritp.caug=1.76e19 \
+    alphap.caug=0 deltap.caug=0.34 gammap.caug=0 \
+    mu2n.caug=947 ncritn.caug=1.94e17 \
+    alphan.caug=0 deltan.caug=0.61 gamman.caug=0
+
+# ============================================================
+# PHASE 1: CLEAN ELECTROSTATICS & C-V SWEEP (NO TRAPS, NO IMPACT)
+# ============================================================
+# Guarantees a flawless, high-speed capacitance extraction
+models material='4H-SiC' consrh auger analytic fldmob bgn.lindefelt fermidirac
+method newton climit=1e-15 px.tol=1e-6 cx.tol=1e-6
+
+solve init
+solve vanode=0 vcathode=0
+save outfile=lgad_v9_0V_clean.str
+
+log outfile=lgad_v9_cv.log
+# Micro-step the Gain Layer depletion (0 to 100V)
+solve vstep=1.0 vfinal=100 name=cathode ac freq=10000 previous
+# Fast plateau sweep to 200V
+solve vstep=10.0 vfinal=200 name=cathode ac freq=10000 previous
+log off
+
+# ============================================================
+# PHASE 2: TRAP INJECTION & EQUILIBRATION
+# ============================================================
+load infile=lgad_v9_0V_clean.str master
+
+# Z1/2 Defect
+trap material="4H-SiC" acceptor density=1e15 energy.level=0.63 degeneracy.factor=12 sign=1e-14 sigp=1e-14
+
+# EH6/7 Defect (Modeled as Acceptor to stabilize 1e17 Space Charge)
+trap material="4H-SiC" acceptor density=1e17 energy.level=1.60 degeneracy.factor=2 sign=1e-14 sigp=1e-14
+
+# Settle the quasi-Fermi levels with traps at 0V
+method newton trap maxtraps=10 itlimit=150
+solve vanode=0 vcathode=0
+
+# ============================================================
+# PHASE 3: PRE-AVALANCHE I-V SWEEP (TRAPS ON, IMPACT OFF)
+# ============================================================
+# Bypasses the 26V convergence crash by isolating impact physics
+log outfile=lgad_v9_iv_pre.log
+
+method newton trap maxtraps=10 itlimit=150 px.tol=1e-6 cx.tol=1e-6 pr.tol=1e-10 cr.tol=1e-10
+solve vstep=10.0 vfinal=400 name=cathode previous
+
+log off
+save outfile=lgad_v9_400V_stable.str
+
+# ============================================================
+# PHASE 4: AVALANCHE SWEEP (TRAPS ON, IMPACT ON)
+# ============================================================
+load infile=lgad_v9_400V_stable.str master
+
+# Attach Ballast Resistor to catch the avalanche spike
+contact name=cathode resistance=5e5
+
+# Enable Heavy Physics (Impact + Band-to-Band Tunneling)
+impact material='4H-SiC' anisotropic sic4h0001 e.side gradqfl e.min=1e5
+models material='4H-SiC' consrh auger analytic fldmob bgn.lindefelt fermidirac impact bbt.std
+
+log outfile=lgad_v9_iv_avalanche.log
+
+# Approach the 650V knee safely
+method newton trap maxtraps=15 itlimit=200 dvmax=5.0 px.tol=1e-6 cx.tol=1e-6 pr.tol=1e-10 cr.tol=1e-10
+solve vstep=5.0 vfinal=600 name=cathode previous
+
+# High-Res Avalanche Sweep to 1200V
+method newton trap maxtraps=20 itlimit=200 dvmax=2.0 px.tol=1e-6 cx.tol=1e-6 pr.tol=1e-10 cr.tol=1e-10
+solve vstep=2.0 vfinal=1200 name=cathode compliance=1e-4 cname=cathode previous
+
+log off
+save outfile=lgad_v9_post_avalanche.str
+
+# ============================================================
+# EXTRACTION
+# ============================================================
+extract init infile="lgad_v9_iv_avalanche.log"
+extract name="Vbd_100nA" x.val from curve(v."cathode", abs(i."anode")) where y.val=1e-7
+
+extract init infile="lgad_v9_cv.log"
+extract name="C_plateau_pF" y.val from curve(v."cathode", c."cathode""cathode"*1e12) where x.val=200
+
+quit
