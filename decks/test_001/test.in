@@ -1,0 +1,98 @@
+# ==========================================
+# 1. MESH DEFINITION
+# ==========================================
+# --- MESH SCALING ---
+# space.mult=1.0 is a global multiplier for grid spacing. Keeping it at 1.0 
+# means the loc/spac values below are used exactly as written in microns.
+mesh space.mult=1.0
+
+# --- HORIZONTAL (X-AXIS) GRID ---
+# A simple 50um wide 1D-like slice. Coarse spacing (1.0um) is used because 
+# nothing changes laterally in this 1D planar simulation.
+x.mesh loc=0.0 spac=1.0
+x.mesh loc=50.0 spac=1.0
+
+# --- VERTICAL (Y-AXIS) GRID ---
+# Highly non-uniform vertical grid. The Newton solver needs extremely tight 
+# node spacing where the electric field changes the fastest (the junctions).
+y.mesh loc=0.0 spac=0.01  # Top Anode
+y.mesh loc=0.3 spac=0.005 # Ultra-fine exactly at the P++/N+ junction (0.3um)
+y.mesh loc=2.0 spac=0.05  # End of the Gaussian gain layer
+y.mesh loc=45.0 spac=1.0  # Coarse in the N- bulk 
+y.mesh loc=50.0 spac=0.01 # Fine at the bottom Cathode
+
+# ==========================================
+# 2. REGIONS & ELECTRODES
+# ==========================================
+# Defines the entire 50x50um spatial mesh as Silicon Carbide.
+region num=1 material=4H-SiC
+
+# Assigns the top and bottom physical boundaries to named electrical contacts.
+electrode name=anode top
+electrode name=cathode bottom
+
+# ==========================================
+# 3. DOPING PROFILES (SICAR P-in-N Architecture)
+# ==========================================
+# Bulk substrate (Lightly doped N-type)
+# This forms the main drift region where the primary voltage drop occurs.
+doping uniform conc=4.5e13 n.type region=1
+
+# Bottom N++ Substrate / Cathode Contact
+# Heavy n-type doping at the bottom to create a good ohmic contact.
+doping uniform conc=1e19 n.type y.top=49.0 y.bottom=50.0
+
+# N+ Gain Layer (Gaussian implant)
+# The avalanche multiplication zone. Peak concentration is positioned at 0.3um 
+# with a characteristic roll-off (char=0.43) simulating a diffused implant.
+doping gaussian conc=1e17 n.type peak=0.3 char=0.43
+
+# P++ Anode (Top surface contact)
+# The highly doped P-type layer completing the main P-N junction.
+doping uniform conc=1e19 p.type y.top=0.0 y.bottom=0.3 x.min=0 x.max=50
+
+# ==========================================
+# 4. UFSD PHYSICS MODELS
+# ==========================================
+# --- MACROSCOPIC PHYSICS ---
+# srh / auger: Recombination mechanisms (Shockley-Read-Hall and Auger).
+# bgn: Bandgap narrowing (crucial for heavily doped regions like the anode).
+# fldmob / conmob: Electric-field and concentration-dependent mobility.
+# incomplete: Incomplete dopant ionization (vital for 4H-SiC where dopants are deep).
+models srh auger bgn fldmob conmob incomplete print 
+
+# --- AVALANCHE PHYSICS ---
+# NOTE: Selberherr is typically tuned for Silicon. For high-accuracy 4H-SiC 
+# breakdowns, consider switching this to 'anisotropic sic4h0001' (Hatakeyama) 
+impact selb
+
+# ==========================================
+# 5. INITIALIZATION & EQUILIBRIUM
+# ==========================================
+# Solves Poisson's equation at 0 Volts to find the built-in potentials 
+# and thermal equilibrium state before any external bias is applied.
+solve initial
+solve prev
+
+# Saves the 0V equilibrium structure map to disk.
+save outf="/home/admin/tcad-lgad/manual_runs/test_001/4HSiC_LGAD_eq.str"
+
+# ==========================================
+# 6. REVERSE BIAS I-V SWEEP
+# ==========================================
+# Opens a data log file to record Terminal Currents and Voltages.
+log outfile="/home/admin/tcad-lgad/manual_runs/test_001/4HSiC_LGAD_IV.log"
+
+# Ramps the cathode voltage from 0V to 500V in rigid 10V steps.
+solve vcathode=0.0 vstep=10.0 vfinal=500.0 name=cathode
+
+# Saves the internal electrical state (fields, depletion regions) at 500V.
+save outf="/home/admin/tcad-lgad/manual_runs/test_001/4HSiC_LGAD_500V.str"
+
+# Closes the I-V datalog.
+log off
+
+# Automatically launches Silvaco's visualization tool to plot the simulated I-V curve.
+tonyplot /home/admin/tcad-lgad/manual_runs/test_001/4HSiC_LGAD_IV.log
+
+quit
