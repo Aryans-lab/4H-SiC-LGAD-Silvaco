@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this repository in your research, please cite it."
+title: "SiC-LGAD"
+type: software
+
+authors:
+  - family-names: "Bandyopadhyay"
+    given-names: "Aryan"
+
+version: "0.1.0"
+date-released: 2026-07-04
+
+repository-code: "https://github.com/Aryans-lab/SiC-LGAD"
+license: "GPL-3.0"
