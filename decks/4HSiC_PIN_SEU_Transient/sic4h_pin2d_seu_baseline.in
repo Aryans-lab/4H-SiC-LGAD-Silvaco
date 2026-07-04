@@ -1,0 +1,106 @@
+go victorydevice simflags="-P 4"
+
+TITLE "Toy 2D 4H-SiC PIN - SEU Transient Baseline"
+
+# ==========================================
+# 1. MESH
+# ==========================================
+mesh
+
+x.mesh loc=0      spac=25
+x.mesh loc=100    spac=10
+x.mesh loc=150    spac=5
+x.mesh loc=200    spac=10
+x.mesh loc=300    spac=25
+
+y.mesh loc=0.0    spac=0.05
+y.mesh loc=0.2    spac=0.03
+y.mesh loc=0.5    spac=0.03
+y.mesh loc=1.2    spac=0.05
+y.mesh loc=2.0    spac=0.10
+y.mesh loc=10.0   spac=0.50
+y.mesh loc=25.0   spac=1.00
+y.mesh loc=50.2   spac=0.50
+y.mesh loc=55.2   spac=0.25
+y.mesh loc=75.2   spac=1.00
+
+# ==========================================
+# 2. REGIONS & ELECTRODES
+# ==========================================
+region num=1 material=4H-SiC x.min=0 x.max=300 y.min=0.0  y.max=1.2  name=pplus
+region num=2 material=4H-SiC x.min=0 x.max=300 y.min=1.2  y.max=50.2 name=epi
+region num=3 material=4H-SiC x.min=0 x.max=300 y.min=50.2 y.max=55.2 name=buffer
+region num=4 material=4H-SiC x.min=0 x.max=300 y.min=55.2 y.max=75.2 name=substrate
+
+electrode name=anode   top
+electrode name=cathode bottom
+
+contact name=anode   neutral
+contact name=cathode neutral
+
+# ==========================================
+# 3. DOPING
+# ==========================================
+doping uniform n.type concentration=1.5e14 region=2
+doping gaussian p.type concentration=1.0e19 region=1 direction=y peak=0.45 characteristic=0.20
+doping gaussian n.type concentration=5.0e18 region=3 direction=y peak=52.7 characteristic=1.0
+doping uniform  n.type concentration=1.0e19 region=4
+
+# ==========================================
+# 4. PHYSICS & MODELS
+# ==========================================
+models material=4H-SiC srh conmob fldmob fermi incomplete print
+
+output e.field e.velocity h.velocity recomb u.srh singleeventupset
+
+method carriers=2 climit=1e-4
+
+# Probes for tracking High-Field and Bulk states
+probe name=E_junction field dir=90 x=150 y=1.3
+probe name=E_bulk     field dir=90 x=150 y=25.0
+probe name=G_junction generation x=150 y=1.3
+probe name=SRH_bulk   srh x=150 y=25.0
+
+# ==========================================
+# 5. INITIALIZATION & REVERSE BIAS RAMP
+# ==========================================
+solve init
+save outfile=pin_eq.str
+
+log outfile=pin_reverse_iv.log
+solve vanode=0 vcathode=0
+
+# Gentle initial ramp to 1000V
+solve name=cathode vstep=1    vfinal=10    previous
+solve name=cathode vstep=10   vfinal=100   previous
+solve name=cathode vstep=25   vfinal=500   previous
+solve name=cathode vstep=50   vfinal=1000  previous
+
+log off
+save outfile=pin_1000V_preSEU.str
+
+# ==========================================
+# 6. SINGLE EVENT UPSET (SEU) TRANSIENT
+# ==========================================
+load infile=pin_1000V_preSEU.str
+solve previous
+
+singleeventupset entrypoint="150.0,0.0,0.0" \
+                 exitpoint="150.0,75.2,0.0" \
+                 radius=0.20 \
+                 density=1.0e15 \
+                 t0=1.0e-11 tc=5.0e-11 \
+                 tfinal.seu=5.0e-10
+
+# seu.integrate avoids needing an ultra-fine mesh along the track
+method carriers=2 climit=1e-4 seu.integrate dt.max=1e-12 dt.min=1e-16
+
+log outfile=pin_1000V_seu_tr.log
+
+# Transient simulation step (Time-dependent)
+solve dt=1e-13 tstop=2e-9 previous
+
+log off
+save outfile=pin_1000V_postSEU.str
+
+quit
