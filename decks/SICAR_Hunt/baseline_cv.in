@@ -1,0 +1,66 @@
+# ============================================================
+# SICAR 4H-SiC LGAD | DECK 2A | FINAL ROBUST C-V (128-BIT)
+# ============================================================
+go victorydevice simflags="-80 -P 6"
+
+# 1. LOAD EXACT GEOMETRY & SCALE TO 3D AREA
+mesh infile=SICAR_LGAD_Geometry.str width=98000
+
+# 2. PURE DIRICHLET CONTACTS
+contact name=anode   neutral
+contact name=cathode neutral
+
+# 3. INTERFACE PHYSICS
+interface qf=1e10 s.n=1e3 s.p=1e3 r1material="4H-SiC" r2material="SiO2"
+
+# 4. MATERIAL & MOBILITY
+material material="4H-SiC" eg300=3.26 permittivity=9.7 ni.min=1e-15
+material material="4H-SiC" inc.two_level \
+        ed.hexagonal=0.0709 ed.cubic=0.1237 \
+        ea.hexagonal=0.220  ea.cubic=0.220 \
+        alpha.incomplete=0.5 gcb=2.0 gvb=4.0
+
+mobility material="4H-SiC" analytic.n analytic.p \
+         mu1n.caug=40.0  mu2n.caug=950.0  ncritn.caug=2.0e17  deltan.caug=0.76 \
+         mu1p.caug=15.9  mu2p.caug=124.0  ncritp.caug=1.76e19 deltap.caug=0.34 \
+         betan.caug=-2.4 betap.caug=-2.6 \
+         vsatn=2.0e7 vsatp=1.8e7
+
+material material="4H-SiC" taun0=1.0e-7 taup0=1.0e-7 augn=5.0e-31 augp=2.0e-31
+
+# =================================================================
+# CRITICAL FIX: VICTORY DEVICE INSULATOR DECLARATION
+# 'insulator' is Atlas syntax and was ignored. 
+# 'user.group=insulator' is the mandatory Victory Device syntax.
+# =================================================================
+material material="SiO2" user.group=insulator user.default=oxide permittivity=3.9
+
+# 5. MODELS
+models material="4H-SiC" fermidirac ni.fermi incomplete inc.two_level \
+       bgn.lindefelt consrh print
+
+# 6. NUMERICS: RELAXED TOLERANCES FOR SPEED
+# 80-bit precision doesn't need 1e-20 tolerances. 1e-14 is perfect for C-V.
+method pas newton trap maxtraps=80 itlimit=250 dvmax=5.0 weak=1 \
+       norm.scaling.local climit=1e-15 \
+       cr.tol=1e-14 ix.tol=1e-14 ir.tol=1e-14
+
+# 7. SOLVE C-V
+solve init
+
+log outfile=sicar_cv_baseline_v2.log 
+
+# STAGE 1: 0 to 20V (Surface & initial gain layer depletion)
+solve name=cathode vstep=2.0 vfinal=20.0 ac freq=1.0e5 port1=cathode port2=anode ports.only
+
+# STAGE 2: 20V to 90V (The "Step" region - Gain layer full depletion)
+solve name=cathode vstep=5.0 vfinal=95.0 ac freq=1.0e5 port1=cathode port2=anode ports.only
+solve name=cathode vstep=1.0 vfinal=100.0 ac freq=1.0e5 port1=cathode port2=anode ports.only
+solve name=cathode vstep=5.0 vfinal=120.0 ac freq=1.0e5 port1=cathode port2=anode ports.only
+# STAGE 3: 135V to 300V (Bulk Epi Depletion)
+# Smooth 1/sqrt(V) Mott-Schottky curve. 15V steps are more than enough 
+solve name=cathode vstep=20.0 vfinal=400.0 ac freq=1.0e5 port1=cathode port2=anode ports.only
+
+log off
+
+quit
