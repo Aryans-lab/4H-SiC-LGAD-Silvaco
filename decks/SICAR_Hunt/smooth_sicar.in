@@ -1,0 +1,146 @@
+# ============================================================
+# 1. VICTORY PROCESS: GEOMETRY & BACKGROUND MESH GENERATION
+# ============================================================
+go victoryprocess simflags="-P 4"
+
+# Initialize 4H-SiC substrate (X: -20 to 20, Depth: 61.3um)
+init material="4H-SiC" from="-20.0" to="20.0" depth=61.3 \
+     resolution=0.5,0.5 meshdepth=2 gasheight=5.0
+
+# ---- X mesh: Snaps EXACTLY to your 10-step bevel regions ----
+# Domain: -20.0 to 20.0. Bevel starts at +/- 9.0, ends at +/- 19.588
+line x location=-20.0    spacing=1.0
+line x location=-19.588  spacing=0.95
+line x location=-18.529  spacing=0.9
+line x location=-17.470  spacing=0.8
+line x location=-16.412  spacing=0.7
+line x location=-15.353  spacing=0.7
+line x location=-14.294  spacing=0.6
+line x location=-13.235  spacing=0.6
+line x location=-12.176  spacing=0.5
+line x location=-11.118  spacing=0.5
+line x location=-10.059  spacing=0.4
+line x location=-9.0     spacing=0.4
+line x location=-4.0     spacing=0.3
+line x location=0.0      spacing=0.2
+line x location=4.0      spacing=0.3
+line x location=9.0      spacing=0.4
+line x location=10.059   spacing=0.4
+line x location=11.118   spacing=0.5
+line x location=12.176   spacing=0.5
+line x location=13.235   spacing=0.6
+line x location=14.294   spacing=0.6
+line x location=15.353   spacing=0.7
+line x location=16.412   spacing=0.7
+line x location=17.470   spacing=0.8
+line x location=18.529   spacing=0.9
+line x location=19.588   spacing=0.95
+line x location=20.0     spacing=1.0
+
+# ---- Y mesh: STRICTLY INCREASING ORDER & PHYSICALLY GRADED ----
+
+line y location=-0.5   spacing=0.05  
+line y location=0.0    spacing=0.05  
+line y location=0.065  spacing=0.05
+line y location=0.195  spacing=0.05
+line y location=0.28   spacing=0.05
+line y location=0.3    spacing=0.05   # P++/Gain boundary
+line y location=0.325  spacing=0.05
+line y location=0.455  spacing=0.05
+line y location=0.585  spacing=0.05
+line y location=0.715  spacing=0.05
+line y location=0.845  spacing=0.05
+line y location=0.975  spacing=0.05
+line y location=1.105  spacing=0.05
+line y location=1.235  spacing=0.05
+line y location=1.28   spacing=0.05
+line y location=1.3    spacing=0.05   # Gain/Epi boundary
+line y location=1.32   spacing=0.05
+line y location=1.5    spacing=0.05
+line y location=3.0    spacing=0.2
+line y location=10.0   spacing=0.5
+line y location=25.0   spacing=1.0
+line y location=45.0   spacing=1.2
+line y location=51.3   spacing=0.5   
+line y location=56.3   spacing=1.0   
+line y location=61.3   spacing=1.5 
+
+# Right Bevel: 7 degree angle, etch depth 1.3um
+etch material="4H-SiC" dry right.to.x=9.0 angle=7 thickness=1.3
+
+# Left Bevel: 7 degree angle, etch depth 1.3um
+etch material="4H-SiC" dry left.to.x=-9.0 angle=7 thickness=1.3
+
+# Deposit Passivation Oxide (Conformal over the bevel, 0.5um thick)
+deposit material=oxide thickness=0.5 conformal
+
+# Etch Contact Hole for Anode (Open window from x=-4 to x=4)
+etch material=oxide dry between.x="-4.0, 4.0" thickness=0.5
+
+# Deposit 0.5um Anode Metal (Aluminum) to satisfy physical thickness requirement
+deposit material=aluminum thickness=0.5 between.x="-4.0, 4.0" conformal
+
+# Save VP structure 
+save name=LGAD_Geom_VP_sv
+
+# ============================================================
+# 2. VICTORY MESH: RD50 OPTIMIZED PHYSICS REFINEMENT
+# ============================================================
+go victorymesh simflags="-P 4"
+
+# 1. Define Spatial Zones (Restricted to Active Anode Area)
+cuboid from="-5.0, 0.0"  to="5.0, 0.35"  out="box_pp"         # P++ Layer 
+cuboid from="-5.0, 0.35" to="5.0, 1.35"  out="box_gain"       # Gain Layer 
+cuboid from="-5.0, 1.35" to="5.0, 3.0"   out="box_depletion"  # Top Depletion Region
+
+# 2. Load Geometry & Base Mesh
+load in=LGAD_Geom_VP_sv
+remesh simplex.minimal
+
+# 3. Apply Targeted Refinement
+# ZONE A: P++ Layer (20nm mesh is perfect for quasi-neutral highly doped regions)
+refine regions="material:4H-SiC" shape="box_pp" \
+       max.shape.size=0.02 max.shape.size.distance=0.0 \
+       max.shape.distance=0.15 max.shape.distance.size=0.05 \
+       grading="linear"
+
+# ZONE B: Gain Layer (10nm mesh strictly resolves Impact Ionization & Debye length)
+refine regions="material:4H-SiC" shape="box_gain" \
+       max.shape.size=0.01 max.shape.size.distance=0.0 \
+       max.shape.distance=0.15 max.shape.distance.size=0.05 \
+       grading="linear"
+
+# ZONE C: Depletion Region (50nm mesh captures the expanding field smoothly)
+refine regions="material:4H-SiC" shape="box_depletion" \
+       max.shape.size=0.05 max.shape.size.distance=0.0 \
+       max.shape.distance=1.0 max.shape.distance.size=0.2 \
+       grading="linear"
+
+# Save the final structure
+save out=LGAD_Geom_VM
+
+# ============================================================
+# 3. VICTORY DEVICE: ELECTRODES & DOPING (NO PHYSICS)
+# ============================================================
+go victorydevice simflags="-P 4"
+
+# Load the meshed structure 
+mesh infile=LGAD_Geom_VM.str
+
+# Define Electrodes
+# Anode sits on top of the 0.5um Aluminum layer (Y goes negative upwards)
+electrode name=anode   x.min=-4.0  x.max=4.0  y.min=-0.5 y.max=-0.5
+electrode name=cathode x.min=-20.0 x.max=20.0 y.min=61.3 y.max=61.3
+
+
+# Define Basic Doping (Exact layers mapped to new 61.3um depth)
+doping material="4H-SiC" p.type uniform concentration=5.0e19 y.min=0.0 y.max=0.3
+doping material="4H-SiC" n.type uniform concentration=8.6e16 y.min=0.3 y.max=1.3
+doping material="4H-SiC" n.type uniform concentration=3.8e14 y.min=1.3 y.max=51.3
+doping material="4H-SiC" n.type uniform concentration=1.0e18 y.min=51.3 y.max=56.3
+doping material="4H-SiC" n.type uniform concentration=1.0e19 y.min=56.3 y.max=61.3
+
+# Save the final geometry structure file
+save outfile=SICAR_LGAD_Geometry.str
+
+quit
